@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # A script to migrate gitolite repositories to gitlab.
 #
@@ -15,7 +15,7 @@ usage () {
     echo "  -i  Confirm each repository to migrate"
     echo "  -h  Display this help"
     echo
-    echo "  gitolite-admin-uri  Repository URI for the gitolite-admin repo (e.g., gitolite@example.com:gitolite-admin.git)"
+    echo "  gitolite-uri        Repository URI for the gitolite server (e.g., gitolite@example.com)"
     echo "  gitlab-url          Where your GitLab is hosted (e.g., https://www.gitlab.com)"
     echo "  gitlab-user         Username for which the projects should be created"
     echo "  gitlab-token        Private token for the API to create the projects (see https://www.gitlab.com/profile/account)"
@@ -38,7 +38,7 @@ clone_repo () {
     lite_repo=$1; lab_repo=$2
 
     target=$cwd/tmp/$lab_repo
-    repo_uri=${gitolite_base_uri}:${lite_repo}.git
+    repo_uri=${gitolite_uri}:${lite_repo}.git
 
     if [ -d $target ]; then
         log "$lite_repo: found"
@@ -105,11 +105,13 @@ if [ $# -ne 4 ]; then
 fi
 
 
-gitolite_admin_uri=$1
+gitolite_uri=$1
 gitlab_url=$2
 gitlab_user=$3
 gitlab_token=$4
 gitlab_domain=${gitlab_url##*//}
+
+
 
 if [[ ! $gitlab_url == *"//"* ]]; then
     error "<gitlab-url> must contain a protocol"
@@ -117,30 +119,15 @@ if [[ ! $gitlab_url == *"//"* ]]; then
     exit 2
 fi
 
-if [ -z $gitolite_base_uri ]; then
-    gitolite_base_uri=${gitolite_admin_uri%%:*}
-fi
 
-test -z "$gitolite_base_uri" && { error "cannot figure out gitolite base uri"; exit 1; }
-
-
-# directories
+# create a tmp directory
 cwd=$(cd $(dirname $0); pwd)
-glwd=$cwd/tmp/gitolite-admin
-
-
 mkdir "$cwd/tmp" 2>/dev/null
 
 # get repository list
 set -e
-log "gitolite_admin: retrieving repo list"
-if [ -d $glwd ]; then
-    log "gitolite-admin: found"
-else
-    log "gitolite-admin@gitolite: download from $gitolite_admin_uri"
-    git clone $gitolite_admin_uri "$glwd"
-fi
-repos=$(sed -n 's/^repo\s\+\(.\+\)$/\1/p' $glwd/conf/gitolite.conf | grep -v gitolite-admin)
+log "gitolite: retrieving repo list"
+repos=$(ssh ${gitolite_uri} info -json |jq '.repos' |jq -r 'keys[]')
 
 # migrate repositories
 count=$(set -- $repos; echo $#)
