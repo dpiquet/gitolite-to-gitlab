@@ -35,20 +35,20 @@ error () {
 }
 
 clone_repo () {
-    lite_repo=$1; lab_repo=$2
+    lite_repo=${1}; lab_repo=${2}
 
-    target=$cwd/tmp/$lab_repo
+    target=${cwd}/tmp/${lab_repo}
     repo_uri=${gitolite_uri}:${lite_repo}.git
 
-    if [ -d $target ]; then
-        log "$lite_repo: found"
+    if [ -d ${target} ]; then
+        log "${lite_repo}: found"
     else
-        log "$lite_repo@gitolite: download from $repo_uri"
+        log "${lite_repo}@gitolite: download from ${repo_uri}"
         set +e
-        git clone --mirror $repo_uri $target
+        git clone --mirror ${repo_uri} ${target}
         if [ $? -eq 1 ]; then
             # cleanup
-            rm -r $target
+            rm -r ${target}
             exit 1
         fi
         set -e
@@ -58,39 +58,55 @@ clone_repo () {
 create_repo () {
     lite_repo=$1; lab_repo=$2
 
-    log "$lite_repo@gitlab: create project $gitlab_url/$gitlab_user/$lab_repo"
+    log "${lite_repo}@gitlab: create project ${gitlab_url}/${gitlab_user}/${lab_repo}"
 
     set +e
-    body=$(curl --silent --header "PRIVATE-TOKEN: $gitlab_token" "$gitlab_url/api/v3/projects" --data "name=$lab_repo&path=$lab_repo")
-    if [[ $body == *"has already been taken"* ]]; then
-        log "$lite_repo@gitlab: already exists"
+
+    # Attempt to create repo on gitlab server
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --header "PRIVATE-TOKEN: ${gitlab_token}" "${gitlab_url}/api/v4/projects" --data "name=${lab_repo}&path=${lab_repo}")
+    if [[ ${http_code} == "401" ]]; then
+        log "${lite_repo}@gitlab: could not authenticate to gitlab API'"
+        return 401
+    fi
+
+    if [[ ${http_code} != "201" ]]; then
+        log "${lite_repo}@gitlab: could not create gitlab repo '${lab_repo}' for gitolite repo '${lite_repo}'. Got ${http_code} HTTP return code from gitlab"
+        return 1
     fi
     set -e
+    return 0
 }
 
 push_repo () {
     lite_repo=$1; lab_repo=$2
 
-    lab_uri=git@$gitlab_domain:${gitlab_user}/${lab_repo}.git
-    log "$lite_repo@gitlab: upload to $lab_uri"
+    lab_uri=git@${gitlab_domain}:${gitlab_user}/${lab_repo}.git
+    log "${lite_repo}@gitlab: upload to ${lab_uri}"
 
-    cd $cwd/tmp/$lab_repo
-    git push --mirror $lab_uri
-    success "$lite_repo: migrated"
+    cd ${cwd}/tmp/${lab_repo}
+    git push --mirror ${lab_uri}
+
+    if ($? == 0); then
+      success "${lite_repo}: migrated"
+      return 0
+    else
+      error "Could not push ${lite_repo} to gitlab"
+      return 1
+    fi
 }
 
 clean_repo () {
     lab_repo=$1
-    test -z $lab_repo && { error "this doesn't seem right, repo is empty; bailing"; exit 1; }
-    cd $cwd
-    rm -rf $cwd/tmp/$lab_repo
-    touch $cwd/tmp/${lab_repo}-migrated
+    test -z ${lab_repo} && { error "this doesn't seem right, repo is empty; bailing"; exit 1; }
+    cd ${cwd}
+    rm -rf ${cwd}/tmp/${lab_repo}
+    touch ${cwd}/tmp/${lab_repo}-migrated
 }
 
 
 interactive=0
 while getopts hi name; do
-    case $name in
+    case ${name} in
         i) interactive=1;;
         h) usage; exit 1;;
         \?) usage; exit 2;;
@@ -112,7 +128,6 @@ gitlab_token=$4
 gitlab_domain=${gitlab_url##*//}
 
 
-
 if [[ ! $gitlab_url == *"//"* ]]; then
     error "<gitlab-url> must contain a protocol"
     usage
@@ -130,33 +145,33 @@ log "gitolite: retrieving repo list"
 repos=$(ssh ${gitolite_uri} info -json |jq '.repos' |jq -r 'keys[]')
 
 # migrate repositories
-count=$(set -- $repos; echo $#)
+count=$(set -- ${repos}; echo $#)
 index=0
-for lite_repo in $repos; do
+for lite_repo in ${repos}; do
     ((++index))
-    if [ $interactive -eq 1 ]; then
-        read -p "Do you want to migrate repo '$lite_repo'? [Yn] " -n 1 -r
+    if [ ${interactive} -eq 1 ]; then
+        read -p "Do you want to migrate repo '${lite_repo}'? [Yn] " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             continue
         fi
     fi
 
-    log "($index/$count) $lite_repo"
+    log "(${index}/${count}) ${lite_repo}"
 
-    lab_repo=$lite_repo
-    if [[ ! $lab_repo =~ ^[a-zA-Z0-9_\.-]+$ ]]; then
-        log "$lite_repo: invalid characters in gitolite name, replacing them with dash for gitlab"
-        lab_repo=$(echo $lite_repo | sed 's/[^a-zA-Z0-9_\.-]/-/g')
+    lab_repo=${lite_repo}
+    if [[ ! ${lab_repo} =~ ^[a-zA-Z0-9_\.-]+$ ]]; then
+        log "${lite_repo}: invalid characters in gitolite name, replacing them with dash for gitlab"
+        lab_repo=$(echo ${lite_repo} | sed 's/[^a-zA-Z0-9_\.-]/-/g')
     fi
 
-    if [ -f $cwd/tmp/${lab_repo}-migrated ]; then
-        success "$lite_repo: already migrated"
+    if [ -f ${cwd}/tmp/${lab_repo}-migrated ]; then
+        success "${lite_repo}: already migrated"
         continue
     fi
 
-    clone_repo $lite_repo $lab_repo
-    create_repo $lite_repo $lab_repo
-    push_repo $lite_repo $lab_repo
-    clean_repo $lab_repo
+    clone_repo ${lite_repo} ${lab_repo} || continue
+    create_repo ${lite_repo} ${lab_repo} || continue
+    push_repo ${lite_repo} ${lab_repo} || continue
+    clean_repo ${lab_repo}
 done
