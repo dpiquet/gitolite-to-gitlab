@@ -34,6 +34,15 @@ error () {
     echo -e "\e[0;31mERROR: $*\e[0m" 1>&2
 }
 
+get_gitlab_namespace_id() {
+  namespace_id=$(curl --silent --header "PRIVATE-TOKEN: ${gitlab_token}" "${gitlab_url}/api/v4/namespaces?search=${gitlab_user}" |jq '.[].id')
+  echo "${namespace_id}"
+  if [[ "${namespace_id}" == *'400'* || ${namespace_id} == "" ]]; then
+    log "ERROR: could not find user or group '${gitlab_user}' on GitLab server"
+    exit 2
+  fi
+}
+
 clone_repo () {
     lite_repo=${1}; lab_repo=${2}
 
@@ -63,7 +72,7 @@ create_repo () {
     set +e
 
     # Attempt to create repo on gitlab server
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --header "PRIVATE-TOKEN: ${gitlab_token}" "${gitlab_url}/api/v4/projects" --data "name=${lab_repo}&path=${lab_repo}")
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --header "PRIVATE-TOKEN: ${gitlab_token}" "${gitlab_url}/api/v4/projects" --data "name=${lab_repo}&path=${lab_repo}&namespace_id=${namespace_id}")
     if [[ ${http_code} == "401" ]]; then
         log "${lite_repo}@gitlab: could not authenticate to gitlab API'"
         return 401
@@ -134,6 +143,10 @@ if [[ ! $gitlab_url == *"//"* ]]; then
     exit 2
 fi
 
+namespace_id=-1
+log "gitlab: resolving ${gitlab_user} to namespace ID"
+get_gitlab_namespace_id
+log "gitlab: namespace ID resolved to ${namespace_id}"
 
 # create a tmp directory
 cwd=$(cd $(dirname $0); pwd)
