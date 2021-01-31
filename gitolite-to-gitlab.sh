@@ -10,15 +10,16 @@
 usage () {
     exec 4<&1
     exec 1>&2
-    echo "usage: $(basename $0) [-i] <gitolite-admin-uri> <gitlab-url> <gitlab-user> <gitlab-token>"
+    echo "usage: $(basename $0) [-i] <gitolite-admin-uri> <gitlab-url> <gitlab-user> <gitlab-token> [<gitlab_ssh_url>]"
     echo
     echo "  -i  Confirm each repository to migrate"
     echo "  -h  Display this help"
     echo
-    echo "  gitolite-uri        Repository URI for the gitolite server (e.g., gitolite@example.com)"
-    echo "  gitlab-url          Where your GitLab is hosted (e.g., https://www.gitlab.com)"
+    echo "  gitolite-uri        Repository URI for the gitolite server (e.g., gitolite@gitolite.example.com)"
+    echo "  gitlab-url          Where your GitLab is hosted (e.g., https://www.gitlab.com) - for API calls"
     echo "  gitlab-user         Username for which the projects should be created"
     echo "  gitlab-token        Private token for the API to create the projects (see https://www.gitlab.com/profile/account)"
+    echo "  gitlab-ssh-url      (optional) Repositories SSH URI for the gitlab server (e.g., git@git.example.com:1022) - for Git push."
     exec 1<&4
 }
 
@@ -89,7 +90,8 @@ create_repo () {
 push_repo () {
     lite_repo=$1; lab_repo=$2
 
-    lab_uri=git@${gitlab_domain}:${gitlab_user}/${lab_repo}.git
+    lab_uri=${gitlab_domain}::${gitlab_user}/${lab_repo}.git
+
     log "${lite_repo}@gitlab: upload to ${lab_uri}"
 
     cd ${cwd}/tmp/${lab_repo}
@@ -123,7 +125,7 @@ while getopts hi name; do
 done
 shift $((OPTIND-1))
 
-if [ $# -ne 4 ]; then
+if [ $# -lt 4 ]; then
     error "missing arguments"
     usage
     exit 2
@@ -134,14 +136,21 @@ gitolite_uri=$1
 gitlab_url=$2
 gitlab_user=$3
 gitlab_token=$4
-gitlab_domain=${gitlab_url##*//}
 
+# Compute gitlab push uri from gitlab_url or take given one
+if [ $# -eq 5 ]; then
+  gitlab_domain=$5
+else
+  gitlab_domain="git@${gitlab_url##*//}"
+fi
 
 if [[ ! $gitlab_url == *"//"* ]]; then
     error "<gitlab-url> must contain a protocol"
     usage
     exit 2
 fi
+
+log "Using ${gitlab_domain} as gitlab git server address"
 
 namespace_id=-1
 log "gitlab: resolving ${gitlab_user} to namespace ID"
