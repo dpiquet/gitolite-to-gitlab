@@ -90,14 +90,14 @@ create_repo () {
 push_repo () {
     lite_repo=$1; lab_repo=$2
 
-    lab_uri=${gitlab_domain}::${gitlab_user}/${lab_repo}.git
+    lab_uri=ssh://${gitlab_domain}/${gitlab_user}/${lab_repo}.git
 
     log "${lite_repo}@gitlab: upload to ${lab_uri}"
 
     cd ${cwd}/tmp/${lab_repo}
     git push --mirror ${lab_uri}
 
-    if ($? == 0); then
+    if [ $? == 0 ]; then
       success "${lite_repo}: migrated"
       return 0
     else
